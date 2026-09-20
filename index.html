@@ -2499,7 +2499,8 @@ function parseStudentIdName(fileName){
   let name = base;
   if(studentId) name = base.replace(studentId,'');
   name = name.replace(/[_\-\.]+/g,' ').replace(/[()\[\]]/g,' ').replace(/\s+/g,' ').trim();
-  // '2105 정하윤 보고서.docx' 처럼 파일 이름에 문서 종류가 붙는 경우가 많다. 학생 이름만 남긴다.
+  // 파일 이름에 '보고서', '활동지' 같은 문서 종류가 함께 붙는 경우가 많다. 학생 이름만 남긴다.
+  // (주석·예시에 사람 이름을 쓰지 않는다 - 공개 링크에 올라가는 파일이라 실제 학생과 글자가 겹칠 수 있다)
   name = name.replace(/\s*(수행평가|보고서|활동지|제출물|과제물|과제|결과물|학습지|정리|최종본|초안|사본|스캔본|스캔)\s*/g, ' ').replace(/\s+/g,' ').trim();
   return {studentId, name: name || '(이름 미확인)'};
 }
