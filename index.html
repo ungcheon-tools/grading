@@ -326,6 +326,7 @@ td details .filelist{white-space:pre-wrap;max-width:260px;}
 .amb.done{background:transparent;border:0;color:var(--muted);padding:0;}
 .amb-cell{background:#fffbe6;}
 .amb-notice{background:#fff4c2;border-color:#e6c84f;color:#5b4300;}
+.purge-bar{background:#fff4c2;border-color:#e6c84f;color:#5b4300;}
 .chg{font-size:12px;font-weight:700;color:#b3261e;margin-bottom:3px;}
 .chg-cell{background:#fdecea;}
 .chg-cell input[type=number]{color:#b3261e;border-color:#b3261e;font-weight:700;}
@@ -505,7 +506,7 @@ body.print-mode #printArea{display:block;}
 </div>
 
 <div class="seedbar" id="seedBar" hidden></div>
-<div class="notice amb-notice" id="purgeBar" hidden></div>
+<div class="notice purge-bar" id="purgeBar" hidden></div>
 <div class="notice" id="prevResultsBar" hidden></div>
 <div id="onboard"></div>
 
@@ -746,7 +747,7 @@ body.print-mode #printArea{display:block;}
 
 <footer class="verline" id="verLine"></footer>
 <script>
-const APP_VERSION = 'v23';   // 앱을 고칠 때마다 올린다. 화면 맨 아래에 판 번호로 보인다.
+const APP_VERSION = 'v25';   // 앱을 고칠 때마다 올린다. 화면 맨 아래에 판 번호로 보인다.
 
 /* ===================== 상태 ===================== */
 let state = {
@@ -1224,7 +1225,9 @@ async function renderPdfPageAsImage(pdf, pageNo){
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#ffffff';                       // 투명 배경이 검게 깔려 글씨가 묻히는 것을 막는다
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  await page.render({canvasContext: ctx, viewport}).promise;
+  // intent:'print' 로 그린다 - 기본값은 화면 그리기 신호(requestAnimationFrame)를 기다리는데,
+  // 교사가 채점 도중 다른 창으로 넘어가거나 창을 내리면 그 신호가 멈춰 변환이 영영 끝나지 않는다.
+  await page.render({canvasContext: ctx, viewport, intent: 'print'}).promise;
   return canvas.toDataURL('image/jpeg', IMAGE_QUALITY);
 }
 
@@ -2496,6 +2499,8 @@ function parseStudentIdName(fileName){
   let name = base;
   if(studentId) name = base.replace(studentId,'');
   name = name.replace(/[_\-\.]+/g,' ').replace(/[()\[\]]/g,' ').replace(/\s+/g,' ').trim();
+  // '2105 정하윤 보고서.docx' 처럼 파일 이름에 문서 종류가 붙는 경우가 많다. 학생 이름만 남긴다.
+  name = name.replace(/\s*(수행평가|보고서|활동지|제출물|과제물|과제|결과물|학습지|정리|최종본|초안|사본|스캔본|스캔)\s*/g, ' ').replace(/\s+/g,' ').trim();
   return {studentId, name: name || '(이름 미확인)'};
 }
 
@@ -2609,9 +2614,11 @@ async function gradeAreaInner(ai){
 
   const groups = {};
   const groupOrder = [];
-  function addToGroup(studentId, name, classGroup, classGroupLabel, file, presetImages, presetText){
-    const key = studentId ? ('id:'+studentId) : ('name:'+normalizeLabel(name));
-    if(!groups[key]){ groups[key] = {studentId, name, classGroup, classGroupLabel, files:[], presetImages:[], presetText:''}; groupOrder.push(key); }
+  function addToGroup(studentId, name, classGroup, classGroupLabel, file, presetImages, presetText, uniq){
+    const named = normalizeLabel(name) && name !== '(이름 미확인)';
+    const key = studentId ? ('id:'+studentId)
+              : (named ? ('name:'+normalizeLabel(name)) : (uniq || ('name:'+normalizeLabel(name))));
+    if(!groups[key]){ groups[key] = {key, studentId, name, classGroup, classGroupLabel, files:[], presetImages:[], presetText:''}; groupOrder.push(key); }
     if(file) groups[key].files.push(file);
     if(presetImages && presetImages.length) groups[key].presetImages = groups[key].presetImages.concat(presetImages);
     if(presetText) groups[key].presetText += (groups[key].presetText? '\n\n':'') + presetText;
@@ -2636,10 +2643,10 @@ async function gradeAreaInner(ai){
         segments = await segmentMultiStudentText(content.text, ai);
       }
       if(segments && segments.length>=2){
-        segments.forEach(seg=>{
+        segments.forEach((seg, si)=>{
           const guess = {studentId: seg.studentId, classNo: seg.classNo, no: seg.no, name: seg.name || '(이름 미확인)'};
           const matched = matchAgainstRoster(guess, normalizeLabel(seg.name||''), ai);
-          addToGroup(matched.studentId, matched.name, matched.classGroup||'', matched.classGroupLabel||'', null, null, `[파일: ${f.name}]\n`+seg.text);
+          addToGroup(matched.studentId, matched.name, matched.classGroup||'', matched.classGroupLabel||'', null, null, `[파일: ${f.name}]\n`+seg.text, `seg:${f.name}:${si}`);
         });
       }else{
         const {studentId, name, classGroup, classGroupLabel} = resolveStudentIdentity(f.name, ai);
@@ -2652,10 +2659,10 @@ async function gradeAreaInner(ai){
         seg = await segmentImagesChunked(content.images, ai);
       }
       if(seg && seg.length>=2){
-        seg.forEach(s=>{
+        seg.forEach((s, si)=>{
           const guess = {studentId: s.studentId, classNo: s.classNo, no: s.no, name: s.name || '(이름 미확인)'};
           const matched = matchAgainstRoster(guess, normalizeLabel(s.name||''), ai);
-          addToGroup(matched.studentId, matched.name, matched.classGroup||'', matched.classGroupLabel||'', null, s.images, null);
+          addToGroup(matched.studentId, matched.name, matched.classGroup||'', matched.classGroupLabel||'', null, s.images, null, `seg:${f.name}:${si}`);
         });
       }else{
         const {studentId, name, classGroup, classGroupLabel} = resolveStudentIdentity(f.name, ai);
@@ -2696,7 +2703,7 @@ function renderGroupConfirmation(ai, groupList){
           ? `<div class="thumbs">${g.presetImages.map(src=>`<img src="${src}" alt="제출물 미리보기" onclick="this.classList.toggle('zoomed');">`).join('')}</div>`
           : '';
         return `<tr>
-          <td><input type="text" value="${escapeAttr(g.studentId)}" onchange="pendingGroups[${ai}][${gi}].studentId=this.value;"></td>
+          <td><input type="text" value="${escapeAttr(g.studentId)}" onchange="pendingGroups[${ai}][${gi}].studentId=this.value.trim();"></td>
           <td><input type="text" value="${escapeAttr(g.name)}" onchange="pendingGroups[${ai}][${gi}].name=this.value;"></td>
           <td class="filelist">${escapeHtml(label)}${thumbs}</td>
         </tr>`;
@@ -2738,10 +2745,12 @@ async function confirmAndGradeGroups(ai){
     try{
       setStatus(`gradeStatus_${ai}`,`(${gi+1}/${groupList.length}) ${who} AI 채점 중...`,'busy');
       const {itemsObj, comment} = await gradeStudentGroup(area, g);
-      const existingIdx = results[area.name].findIndex(r=> g.studentId ? r.studentId===g.studentId : r.fileName===fileLabel);
+      const existingIdx = results[area.name].findIndex(r=>
+        g.studentId ? r.studentId===g.studentId
+        : (g.key && r.groupKey ? r.groupKey===g.key : (!r.groupKey && r.fileName===fileLabel)));
       const prevSelected = existingIdx>=0 ? !!results[area.name][existingIdx].selected : false;
       if(existingIdx>=0) markScoreChanges(results[area.name][existingIdx].items, itemsObj);   // 같은 학생을 다시 채점한 경우
-      const row = {fileName:fileLabel, studentId: g.studentId, name: g.name, classGroup: g.classGroup||'', classGroupLabel: g.classGroupLabel||'', items:itemsObj, comment, selected: prevSelected, sourceFiles: g.files, sourceImages: g.presetImages, sourceText: g.presetText};
+      const row = {fileName:fileLabel, groupKey: g.key || '', studentId: g.studentId, name: g.name, classGroup: g.classGroup||'', classGroupLabel: g.classGroupLabel||'', items:itemsObj, comment, selected: prevSelected, sourceFiles: g.files, sourceImages: g.presetImages, sourceText: g.presetText};
       if(existingIdx>=0) results[area.name][existingIdx] = row; else results[area.name].push(row);
       okCount++;
       persistResults();   // 중간에 창이 닫혀도 여기까지는 남는다
@@ -2756,7 +2765,10 @@ async function confirmAndGradeGroups(ai){
   let msg = `채점 완료: ${okCount}명`;
   if(failedFiles.length) msg += ` / 실패 ${failedFiles.length}건: ${failedFiles.join('; ')}`;
   const missing = findMissingFromRoster(area.name, ai);
-  if(missing.length) msg += ` — 명단 중 자료가 없는 학생 ${missing.length}명(일부만 채점했다면 무시하세요): ${missing.join(', ')}`;
+  if(missing.length){
+    const head = missing.slice(0, 8).join(', ') + (missing.length > 8 ? ` 외 ${missing.length-8}명` : '');
+    msg += ` — 명단 중 자료가 없는 학생 ${missing.length}명(일부만 채점했다면 무시하세요): ${head}`;
+  }
   setStatus(`gradeStatus_${ai}`, msg, failedFiles.length? 'err':'ok');
   persistResults();
   refreshReportClassOptions();
