@@ -306,6 +306,7 @@ td details .filelist{white-space:pre-wrap;max-width:260px;}
 .guide-warn{color:var(--warn-ink);background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:6px;padding:8px 12px;margin:0;}
 .classpick{margin:10px 0 12px;}
 .classpick > b{font-size:12.5px;}
+.classpick .seed-warn{color:var(--accent);font-weight:600;font-size:12.5px;}
 .classpick-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
 .chip{
   display:inline-flex;
@@ -516,7 +517,7 @@ body.print-mode #printArea{display:block;}
   <div class="row">
     <div>
       <label>과목</label>
-      <select id="quickPreset" onchange="applyPreset(this.value)"><option value="">(저장된 과목 없음)</option></select>
+      <select id="quickPreset" onchange="if(this.value!=='') applyPreset(this.value)"><option value="">(저장된 과목 없음)</option></select>
     </div>
     <div id="areaPickWrap" hidden>
       <label>채점 영역</label>
@@ -624,7 +625,7 @@ body.print-mode #printArea{display:block;}
 <!-- 명렬(선택, 한 번만) -->
 <details class="card fold" id="rosterCard">
   <summary class="cardhead">학생 명단</summary>
-  <p class="desc">학교 명렬표(xlsx)를 끌어다 놓으면 됩니다. 이 브라우저에 저장되어 다음에도 그대로 씁니다. 이동수업 명단은 아래 "명단 이름"을 채워서 따로 올리세요.</p>
+  <p class="desc">학교 명렬표나 나이스 <b>교과 출석부</b>(xlsx)를 끌어다 놓으면 됩니다. 이 브라우저에 저장되어 다음에도 그대로 씁니다. 교과 출석부는 파일 안의 과목·분반(예: 과학과제연구 꿈실카페3)을 읽어 과목 목록의 학급과 자동으로 이어 줍니다. 분반이 여러 개면 출석부를 하나씩 모두 올리세요.</p>
   <div class="privacy">
     <b>명단은 이 브라우저에만 저장되고, 전송되지 않습니다.</b> 이름 보정·미제출자 확인은 모두 브라우저 안에서 이뤄집니다.
     <details style="margin:6px 0 10px;"><summary style="cursor:pointer;">자세히</summary>
@@ -747,7 +748,7 @@ body.print-mode #printArea{display:block;}
 
 <footer class="verline" id="verLine"></footer>
 <script>
-const APP_VERSION = 'v25';   // 앱을 고칠 때마다 올린다. 화면 맨 아래에 판 번호로 보인다.
+const APP_VERSION = 'v26';   // 앱을 고칠 때마다 올린다. 화면 맨 아래에 판 번호로 보인다.
 
 /* ===================== 상태 ===================== */
 let state = {
@@ -1480,21 +1481,41 @@ function renderTopClassPicker(){
   const box = document.getElementById('classPickTop');
   if(!box) return;
   const groups = rosterGroups();
-  if(!state.areas.length || !groups.length){ box.innerHTML = ''; return; }
+  if(!state.areas.length){ box.innerHTML = ''; return; }
+  const rosterBtn = `<button type="button" class="secondary mini-btn" onclick="openRosterCard()">학생 명단 올리기</button>`;
+  if(!groups.length){
+    box.innerHTML = `<div class="classpick"><b>채점 학급</b> <span class="seed-warn">이 PC(이 브라우저)에는 아직 학생 명단이 없습니다.</span>
+      <div class="desc" style="margin-top:4px;">이 링크에는 학생 개인정보가 들어 있지 않아, 과목만 골라서는 학생이 나오지 않습니다.
+      교내로 받은 「명단 열기」 파일을 더블클릭하거나(PC마다 한 번), 나이스 <b>교과 출석부</b>(xlsx)를 올리면 이 과목의 학급이 자동으로 잡힙니다. ${rosterBtn}</div></div>`;
+    return;
+  }
   const ai = selectedAreaIndex();
   const sel = new Set(getAreaClassKeys(ai));
+  const known = new Set(groups.map(g=>g.key));
+  const missing = [...sel].filter(k=>!known.has(k));
   const shown = sel.size ? groups.filter(g=>sel.has(g.key)) : groups;
   const n = shown.reduce((s,g)=>s+g.count, 0);
   const chip = g => `<label class="chip"><input type="checkbox" ${sel.has(g.key)?'checked':''} onchange="toggleAreaClass(${ai}, '${escapeAttr(g.key)}', this.checked);"> ${escapeHtml(g.label)} <span class="chip-n">${g.count}</span></label>`;
-  const head = sel.size
+  const missNote = missing.length
+    ? `<div class="desc" style="margin-top:4px;">${shown.length ? '명단이 없는 분반' : '<span class="seed-warn">명단에 없는 학급</span>'}: ${escapeHtml(missing.map(classKeyLabel).join(', '))} — 담당 분반이면 그 학급의 나이스 교과 출석부도 올려주세요. ${rosterBtn}</div>`
+    : '';
+  const head = (sel.size && !shown.length)
+    ? `<b>채점 학급</b> <span class="seed-warn">이 과목의 학급이 등록된 명단에 없습니다.</span>`
+    : sel.size
     ? `<b>채점 학급</b> ${shown.length}개 학급 · ${n}명 — 맞으면 아래에 제출물을 올리세요.` +
       (n > BATCH_SOFT_MAX ? ` <span class="desc" style="display:inline;">인원이 많으니 제출물은 한 학급씩(20~30명) 나눠 올리는 편이 좋습니다. 학급 체크는 그대로 두어도 됩니다.</span>` : '')
     : `<b>채점 학급</b> 아직 고르지 않았습니다. 이 영역을 채점할 학급을 체크하세요.`;
-  box.innerHTML = `<div class="classpick">${head}
+  box.innerHTML = `<div class="classpick">${head}${missNote}
     <div class="classpick-row">${shown.map(chip).join('')}</div>
-    ${sel.size && shown.length < groups.length ? `<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:12.5px;">학급 목록 전체 보기 (추가·변경)</summary>
+    ${sel.size && shown.length < groups.length ? `<details style="margin-top:6px;"${shown.length ? '' : ' open'}><summary style="cursor:pointer;font-size:12.5px;">학급 목록 전체 보기 (추가·변경)</summary>
       <div class="classpick-row">${groups.filter(g=>!sel.has(g.key)).map(chip).join('')}</div></details>` : ''}
   </div>`;
+}
+function openRosterCard(){
+  const card = document.getElementById('rosterCard');
+  if(!card) return;
+  card.hidden = false; card.open = true;
+  card.scrollIntoView({behavior:'smooth', block:'start'});
 }
 function rosterClassPicker(ai){
   const groups = rosterGroups();
@@ -1834,7 +1855,7 @@ function presetClassLabels(p){
   const keys = [...new Set([].concat(...(p.classesByArea||[])))];
   if(!keys.length) return [];
   const map = new Map(rosterGroups().map(g=>[g.key, g.label]));
-  return keys.map(k=> map.get(k) || k.replace(/^S:/,''));
+  return resolveClassKeys(keys).map(k=> map.get(k) || classKeyLabel(k));
 }
 function renderPresetOptions(){
   const list = loadPresets();
@@ -1843,7 +1864,8 @@ function renderPresetOptions(){
     if(!sel) return;
     const prev = sel.value;
     sel.innerHTML = list.length
-      ? list.map((p,i)=>`<option value="${i}">${escapeHtml(presetLabel(p))}</option>`).join('')
+      ? (id === 'quickPreset' && list.length > 1 ? `<option value="">— 과목을 고르세요 (${list.length}개) —</option>` : '') +
+        list.map((p,i)=>`<option value="${i}">${escapeHtml(presetLabel(p))}</option>`).join('')
       : `<option value="">${escapeHtml(empty)}</option>`;
     if(prev!=='' && list[prev]) sel.value = prev;
   });
@@ -1864,25 +1886,31 @@ function applyPreset(idx){
   state.areaClasses = {};
   const saved = p.classesByArea || [];
   state.areas.forEach((a, ai)=>{ if(Array.isArray(saved[ai])) state.areaClasses[ai] = saved[ai].slice(); });
+  remapAreaClassesToRoster();
 
   renderRubric(); renderAreaUploads(); renderReportAreaOptions(); renderSetukAreaOptions();
   // 두 드롭다운을 같은 항목으로 맞춰둔다
-  ['presetSelect','quickPreset'].forEach(id=>{ const s = document.getElementById(id); if(s && s.options.length>i) s.value = String(i); });
+  ['presetSelect','quickPreset'].forEach(id=>{ const s = document.getElementById(id); if(s) s.value = String(i); });
 
   // 저장된 학급이 지금 등록된 명단에 실제로 있는지 확인해서, 없으면 분명히 알려준다
   const known = new Set(rosterGroups().map(g=>g.key));
-  const wanted = [...new Set([].concat(...saved))];
+  const wanted = resolveClassKeys([...new Set([].concat(...saved))]);
   const missing = wanted.filter(k=>!known.has(k));
+  const noRoster = !known.size;
   const classes = presetClassLabels(p);
   const warn = validateRubricSums(state.areas);
   const head = `"${p.name}" 준비됐습니다 — 영역 ${state.areas.length}개` + (classes.length? ` · 대상 학급 ${classes.join(', ')}` : '');
-  const tail = missing.length
-    ? ` ⚠ 이 수업의 학급(${missing.map(k=>k.replace(/^S:/,'')).join(', ')})이 등록된 명단에 없습니다. 명단을 등록하거나 영역별 "채점 대상 학급"에서 직접 골라주세요.`
+  const tail = (missing.length && noRoster)
+    ? ` ⚠ 이 PC(이 브라우저)에는 아직 학생 명단이 없어 학생을 불러올 수 없습니다. 「명단 열기」 파일을 더블클릭하거나, 아래 "학생 명단"에 나이스 교과 출석부를 올려주세요.`
+    : (missing.length && missing.length === wanted.length)
+    ? ` ⚠ 이 수업의 학급(${missing.map(classKeyLabel).join(', ')})이 등록된 명단에 없습니다. 해당 학급의 나이스 교과 출석부를 "학생 명단"에 올리거나, 위 학급 목록에서 직접 골라주세요.`
+    : missing.length
+    ? ` 명단이 있는 학급만 채점 학급으로 잡았습니다(명단이 없는 분반: ${missing.map(classKeyLabel).join(', ')} — 담당 분반이면 그 교과 출석부도 올려주세요).`
     : (state.areas.length > 1
         ? ' 위에서 채점할 영역을 고르고, 아래에서 제출물을 올리시면 됩니다.'
         : ' 아래에서 학생 제출물을 올리시면 됩니다.');
   const msg = head + tail + (restored? ` 저장해 둔 채점 결과 ${restored}건을 되살렸습니다.` : '') + (warn? ` ⚠ ${warn}` : '');
-  const cls = (missing.length || warn) ? 'err' : 'ok';
+  const cls = ((missing.length && missing.length === wanted.length) || warn) ? 'err' : 'ok';
   setStatus('quickStatus', msg, cls);
   setStatus('presetStatus', msg, cls);
 }
@@ -2169,7 +2197,7 @@ function renderRubricPickers(){
     const ai = rubricAreaIndex();
     const p = loadPresets()[currentPresetIndex()];
     // 이 과목이 실제로 듣는 학급만 고를 수 있게 한다
-    const mine = new Set((p && p.classesByArea && p.classesByArea[ai]) ? p.classesByArea[ai] : getAreaClassKeys(ai));
+    const mine = new Set(resolveClassKeys((p && p.classesByArea && p.classesByArea[ai]) ? p.classesByArea[ai] : getAreaClassKeys(ai)));
     const groups = rosterGroups().filter(g=> mine.size ? mine.has(g.key) : true);
     const picked = new Set(getAreaClassKeys(ai));
     const all = groups.reduce((s,g)=>s+g.count, 0);
@@ -2187,7 +2215,7 @@ function onRubricClassChange(){
     state.areaClasses[ai] = [cSel.value];
   }else{
     const p = loadPresets()[currentPresetIndex()];
-    state.areaClasses[ai] = (p && p.classesByArea && p.classesByArea[ai]) ? p.classesByArea[ai].slice() : [];
+    state.areaClasses[ai] = resolveClassKeys((p && p.classesByArea && p.classesByArea[ai]) ? p.classesByArea[ai] : []);
   }
   saveRubricToPreset();
   renderAreaUploads();
@@ -2263,7 +2291,8 @@ function setItemValues(ai, ii, raw){
 // 지금 화면의 과목이 저장 목록의 몇 번째인지
 function currentPresetIndex(){
   const sel = document.getElementById('quickPreset');
-  const i = sel ? Number(sel.value) : -1;
+  if(!sel || sel.value === '') return -1;
+  const i = Number(sel.value);
   return (i >= 0 && i < loadPresets().length) ? i : -1;
 }
 // 채점기준을 고치면 곧바로 그 과목에 저장한다(따로 저장 버튼을 두지 않는다)
@@ -3505,11 +3534,12 @@ function findRosterBlocks(rows){
         if(nt==='성명' || nt==='이름'){ nameCol = k; break; }
       }
       if(nameCol===-1) continue;
-      let classCol = -1, subClassCol = -1, noCol = isNoHead ? c : -1, idCol = isIdHead ? c : -1;
-      for(let k=Math.max(0,c-3); k<Math.min(row.length, nameCol+5); k++){
+      let classCol = -1, subClassCol = -1, gradeCol = -1, noCol = isNoHead ? c : -1, idCol = isIdHead ? c : -1;
+      for(let k=Math.max(0,c-4); k<Math.min(row.length, nameCol+5); k++){
         const ht = normCell(row[k]);
         if(!ht) continue;
         if(/분반|이동반|이동수업/.test(ht) && subClassCol===-1) subClassCol = k;
+        else if(ht==='학년' && gradeCol===-1) gradeCol = k;
         else if(ht==='반' && classCol===-1) classCol = k;
         else if(ht==='번호' && noCol===-1) noCol = k;
         else if(ht==='학번' && idCol===-1) idCol = k;
@@ -3523,11 +3553,38 @@ function findRosterBlocks(rows){
           if(m){ blockClass = m[1]; break; }
         }
       }
-      blocks.push({headerRow:r, idCol, noCol, nameCol, classCol, subClassCol, blockClass});
+      // 나이스 「교과시간별출석부」는 머리글 위에 "교과 : 과학과제 연구 3학년  3-꿈실카페3(3학년)" 줄이 있다.
+      // 이 줄에서 과목·분반을 읽어 과목 목록의 학급(예: "과학과제연구 꿈실카페3")과 바로 이어지게 한다.
+      let title = null;
+      for(let up=r-1; up>=Math.max(0,r-12) && !title; up--){
+        const urow = rows[up]; if(!urow) continue;
+        for(let k=0; k<urow.length && !title; k++) title = parseCourseTitle(urow[k]);
+      }
+      blocks.push({headerRow:r, idCol, noCol, nameCol, classCol, subClassCol, gradeCol, blockClass, title});
       c = nameCol; // 같은 줄에서 다음 반 머리글부터 이어서 찾는다
     }
   }
   return blocks;
+}
+
+// "교과 : 과학과제 연구 3학년  3-꿈실카페3(3학년)" → {subject:'과학과제연구', grade:'3', section:'꿈실카페3'}
+// 분반이 "3-3"처럼 숫자뿐이면 "303"으로 적는다(과목 목록의 표기와 같게).
+function parseCourseTitle(v){
+  if(v==null) return null;
+  const m = String(v).replace(/\s+/g,' ').trim().match(/^교과\s*[:：]\s*(.+?)\s*([1-3])\s*학년\s+(.+)$/);
+  if(!m) return null;
+  const subject = m[1].replace(/\s/g,'');
+  const grade = m[2];
+  let sec = m[3].replace(/\([^)]*\)\s*$/,'').trim();
+  const sm = sec.match(/^([1-3])\s*-\s*(.+)$/);
+  let classOnly = '';
+  if(sm){
+    if(/^\d{1,2}$/.test(sm[2])){ classOnly = String(Number(sm[2])); sec = sm[1] + sm[2].padStart(2,'0'); }
+    else sec = sm[2];
+  }
+  sec = sec.replace(/\s/g,'');
+  if(!subject || !sec) return null;
+  return {subject, grade, section: sec, classOnly};
 }
 
 // 학번에서 학년/반/번호를 뽑는다. 4자리(1101=1학년 1반 1번)와 5자리(11101) 모두 지원.
@@ -3562,6 +3619,7 @@ async function parseRosterFile(file){
     const sheetGrade = sheetGradeMatch ? sheetGradeMatch[1] : '';
     findRosterBlocks(sheet.rows).forEach(b=>{
       let blank = 0;
+      const blockRows = [];
       for(let r=b.headerRow+1; r<sheet.rows.length; r++){
         const row = sheet.rows[r];
         const rawName = row ? row[b.nameCol] : null;
@@ -3578,15 +3636,24 @@ async function parseRosterFile(file){
         const classNo = (b.classCol!==-1 && row[b.classCol]!=null ? String(row[b.classCol]).trim() : '')
                         || b.blockClass || fromId.classNo;
         const no = (b.noCol!==-1 && row[b.noCol]!=null ? String(row[b.noCol]).trim() : '') || fromId.no;
-        const grade = fromId.grade || sheetGrade;
+        const gradeCell = b.gradeCol!==-1 && row[b.gradeCol]!=null ? String(row[b.gradeCol]).replace(/\D/g,'') : '';
+        const grade = gradeCell || fromId.grade || (b.title ? b.title.grade : '') || sheetGrade;
         const key = studentId || `${grade}-${classNo}-${no}-${name}`;
-        if(seen.has(key)) return;
+        if(seen.has(key)) continue;
         seen.add(key);
-        roster.push({
+        blockRows.push({
           grade, classNo, no, studentId, name,
           subClassNo: b.subClassCol!==-1 && row[b.subClassCol]!=null ? String(row[b.subClassCol]).trim() : ''
         });
       }
+      // 교과 출석부 제목이 있으면 그 과목·분반을 학급 이름으로 쓴다.
+      // 단, 제목의 분반이 원반(예: 3-1)이고 학생이 모두 그 반이면 원반 수업이므로 학년-반 그대로 둔다.
+      const t = b.title;
+      const wholeClass = t && t.classOnly && blockRows.length && blockRows.every(e=> String(Number(e.classNo)) === t.classOnly);
+      blockRows.forEach(e=>{
+        if(t && !e.subClassNo && !wholeClass){ e.subClassNo = `${t.subject} ${t.section}`; e._titled = true; }
+        roster.push(e);
+      });
     });
   });
   if(!roster.length) throw new Error("명렬에서 학생을 찾지 못했습니다. '학번'(또는 '번호')과 '성명'(또는 '이름')이 머리글로 들어간 표인지 확인해주세요.");
@@ -3617,6 +3684,36 @@ function rosterGroups(){
     map.get(k).count++;
   });
   return [...map.values()].sort((a,b)=>a.key.localeCompare(b.key, 'ko', {numeric:true}));
+}
+
+// 과목에 저장된 학급 이름과 명단의 학급 이름이 띄어쓰기·로마숫자(Ⅱ/2)·"3-3"/"303" 표기만 다르면 같은 학급으로 본다.
+function canonClassKey(k){
+  const raw = String(k||'');
+  const sub = raw.startsWith('S:');
+  let s = raw.replace(/^S:/,'').replace(/\([^)]*\)/g,'');
+  s = s.replace(/[ⅠⅡⅢⅣⅤ]/g, c=>String('ⅠⅡⅢⅣⅤ'.indexOf(c)+1)).replace(/[ⅰⅱⅲ]/g, c=>String('ⅰⅱⅲ'.indexOf(c)+1));
+  s = s.replace(/[\s·_]/g,'').toLowerCase();
+  s = s.replace(/(^|\D)([1-3])-(\d{1,2})$/, (m,a,g,c)=> a + g + c.padStart(2,'0'));
+  return (sub ? 'S:' : '') + s;
+}
+// 명단에 없는 학급 키를 사람이 읽는 이름으로: "S:기하 202" → "기하 202", "1-3" → "1학년 3반"
+function classKeyLabel(k){
+  const raw = String(k||'');
+  if(raw.startsWith('S:')) return raw.slice(2);
+  const m = raw.match(/^([1-3])-(\d{1,2})$/);
+  return m ? `${m[1]}학년 ${m[2]}반` : raw;
+}
+// 저장된 학급 키를 지금 등록된 명단의 실제 학급 키로 바꾼다(못 찾으면 그대로 둔다)
+function resolveClassKeys(keys){
+  const groups = rosterGroups();
+  const exact = new Set(groups.map(g=>g.key));
+  const byCanon = new Map();
+  groups.forEach(g=>{ const c = canonClassKey(g.key); if(!byCanon.has(c)) byCanon.set(c, g.key); });
+  return [...new Set((keys||[]).map(k=> exact.has(k) ? k : (byCanon.get(canonClassKey(k)) || k)))];
+}
+function remapAreaClassesToRoster(){
+  if(!state.areaClasses) return;
+  Object.keys(state.areaClasses).forEach(ai=>{ state.areaClasses[ai] = resolveClassKeys(state.areaClasses[ai]); });
 }
 
 const ROSTER_STORE_KEY = 'grading_rosters_v2';
@@ -3657,8 +3754,9 @@ function announceRoster(saved){
     setStatus('rosterStatus',
       `명단 ${sets.length}개 / 학생 ${total}명 / 학급 ${groups.length}개 등록됨 — ${setMsg}.` +
       (saved ? ' 이 브라우저에 저장했습니다.' : ' 브라우저 저장에 실패해 이번 세션에서만 사용됩니다.') +
-      ' 채점할 때 "채점 대상 학급"에서 이번 수업 학급만 골라주세요.', 'ok');
+      ' 과목을 고르면 그 과목의 학급이 자동으로 잡힙니다.', 'ok');
   }
+  remapAreaClassesToRoster();
   renderAreaUploads(); renderReportAreaOptions(); renderSetukAreaOptions();
   renderOnboarding();
 }
@@ -3673,7 +3771,10 @@ async function loadRoster(){
   try{
     let roster = await parseRosterFile(input.files[0]);
     // 이름을 붙여 올리면 그 명단 전체를 하나의 이동수업 학급으로 취급한다
-    if(label) roster = roster.map(e=>Object.assign({}, e, {subClassNo: label}));
+    // 단, 나이스 교과 출석부처럼 파일 안에 과목·분반이 적혀 있으면 그것을 그대로 쓴다(과목 목록과 이어지도록)
+    const titled = roster.some(e=>e._titled);
+    if(label && !titled) roster = roster.map(e=>Object.assign({}, e, {subClassNo: label}));
+    roster = roster.map(e=>{ const x = Object.assign({}, e); delete x._titled; return x; });
     const sets = rosterSets();
     const idx = sets.findIndex(s=> s.label===label && s.fileName===fileName);
     const entry = {label, fileName, savedAt: Date.now(), roster};
